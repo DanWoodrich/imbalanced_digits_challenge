@@ -219,3 +219,7 @@ __marimo__/
 
 docs/logs*
 docs/lightning_logs*
+
+# Challenge data and training runs
+data/
+runs/

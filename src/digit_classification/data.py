@@ -1,9 +1,10 @@
-"""Data curation and loading for imbalanced digit classification."""
+"""Data curation, loading, and persistence for imbalanced digit classification."""
 
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
+import tempfile
 import torch
-from torch.utils.data import DataLoader, Dataset, Subset, WeightedRandomSampler
+from torch.utils.data import DataLoader, Dataset, TensorDataset, WeightedRandomSampler
 from torchvision import datasets as tv_datasets
 from torchvision import transforms
 
@@ -17,52 +18,28 @@ NUM_CLASSES: int = len(TARGET_DIGITS)
 TARGET_QUOTAS: Dict[int, int] = {8: 3500, 0: 1200, 5: 300}
 TOTAL_SAMPLES: int = sum(TARGET_QUOTAS.values())  # 5,000
 
-
-class LabelMappedDataset(Dataset):
-    """Wraps a PyTorch Dataset/Subset to remap target labels (e.g. 0, 5, 8 -> 0, 1, 2)."""
-
-    def __init__(self, dataset: Dataset, mapping: Dict[int, int]):
-        self.dataset = dataset
-        self.mapping = mapping
-
-    def __len__(self) -> int:
-        return len(self.dataset)
-
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
-        image, label = self.dataset[idx]
-        return image, self.mapping[label]
-
-
-def download_mnist(data_dir: str) -> tv_datasets.MNIST:
-    """Downloads the MNIST training dataset if not present and returns it with ToTensor transform."""
-    Path(data_dir).mkdir(parents=True, exist_ok=True)
-    return tv_datasets.MNIST(
-        root=data_dir,
-        train=True,
-        transform=transforms.ToTensor(),
-        download=True,
-    )
+CURATED_FILENAME = "curated_dataset.pt"
 
 
 def curate_imbalanced_splits(
-    mnist_dataset: Dataset,
+    mnist_dataset: tv_datasets.MNIST,
     seed: int = 42,
     train_count: int = 3000,
     val_count: int = 1000,
     test_count: int = 1000,
-) -> Tuple[Dataset, Dict[str, Dict[int, List[int]]]]:
+) -> Tuple[List[Tuple[torch.Tensor, int]], Dict[str, Dict[int, List[int]]]]:
     """Curates an imbalanced subset of 5,000 images (3500 '8's, 1200 '0's, 300 '5's)
 
-    and partitions them into reproducible train, val, and test (evaluation) splits.
-    Evaluation is 20% (1,000 / 5,000).
+    and partitions them into reproducible train, val, and test splits using a fixed random seed.
     """
-    assert train_count + val_count + test_count == TOTAL_SAMPLES, (
-        f"Splits must sum to total samples ({TOTAL_SAMPLES})"
-    )
+    assert train_count + val_count + test_count == TOTAL_SAMPLES
 
     generator = torch.Generator().manual_seed(seed)
     shuffled_indices = torch.randperm(len(mnist_dataset), generator=generator).tolist()
-    shuffled_dataset = Subset(mnist_dataset, shuffled_indices)
+
+    shuffled_samples: List[Tuple[torch.Tensor, int]] = [
+        mnist_dataset[i] for i in shuffled_indices
+    ]
 
     label_quota = TARGET_QUOTAS.copy()
     split_quota = {"train": train_count, "val": val_count, "test": test_count}
@@ -73,11 +50,9 @@ def curate_imbalanced_splits(
         "test": {8: [], 0: [], 5: []},
     }
 
-    # Deterministic assignment using PyTorch Generator with manual seed
     rng = torch.Generator().manual_seed(seed)
 
-    for idx in range(len(shuffled_dataset)):
-        _, label = shuffled_dataset[idx]
+    for idx, (_, label) in enumerate(shuffled_samples):
         if label in label_quota:
             active_splits = list(split_quota.keys())
             rand_idx = int(torch.randint(high=len(active_splits), size=(1,), generator=rng).item())
@@ -94,60 +69,93 @@ def curate_imbalanced_splits(
                 if not label_quota:
                     break
 
-    return shuffled_dataset, split_label_indices
+    return shuffled_samples, split_label_indices
 
 
-def create_weighted_sampler(
-    shuffled_dataset: Dataset,
-    train_indices: List[int],
-    split_label_indices: Dict[str, Dict[int, List[int]]],
-) -> WeightedRandomSampler:
-    """Builds a WeightedRandomSampler that inverts class frequencies to balance training batches."""
-    class_counts = {
-        label: len(indices)
-        for label, indices in split_label_indices["train"].items()
-    }
-    class_weights = {label: 1.0 / count for label, count in class_counts.items()}
+def download_and_curate_data(
+    data_dir: str = "./data",
+    seed: int = 42,
+) -> Path:
+    """Downloads MNIST into a temporary workspace, curates the imbalanced dataset splits
 
-    # Compute per-sample weight based on raw label
-    sample_weights = [
-        class_weights[shuffled_dataset[idx][1]]
-        for idx in train_indices
-    ]
+    using seed (default: 42), and saves curated_dataset.pt to data_dir.
+    """
+    data_path = Path(data_dir)
+    data_path.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        mnist_dataset = tv_datasets.MNIST(
+            root=tmp_dir,
+            train=True,
+            transform=transforms.ToTensor(),
+            download=True,
+        )
+
+        shuffled_samples, splits = curate_imbalanced_splits(mnist_dataset, seed=seed)
+
+        curated_data: Dict[str, Any] = {"metadata": {"seed": seed}}
+
+        for split_name in ["train", "val", "test"]:
+            imgs = []
+            labels = []
+            raw_labels = []
+            for digit in [8, 0, 5]:
+                for idx in splits[split_name][digit]:
+                    img, raw_lbl = shuffled_samples[idx]
+                    imgs.append(img)
+                    labels.append(DIGIT_TO_IDX[raw_lbl])
+                    raw_labels.append(raw_lbl)
+
+            curated_data[f"{split_name}_images"] = torch.stack(imgs)
+            curated_data[f"{split_name}_labels"] = torch.tensor(labels, dtype=torch.long)
+            curated_data[f"{split_name}_raw_labels"] = torch.tensor(raw_labels, dtype=torch.long)
+
+        curated_file = data_path / CURATED_FILENAME
+        torch.save(curated_data, curated_file)
+
+    return curated_file
+
+
+def create_weighted_sampler(mapped_train_labels: torch.Tensor) -> WeightedRandomSampler:
+    """Builds a WeightedRandomSampler that inverts class frequencies on the training split."""
+    class_counts = torch.bincount(mapped_train_labels, minlength=NUM_CLASSES)
+    class_weights = 1.0 / class_counts.float()
+    sample_weights = class_weights[mapped_train_labels]
 
     return WeightedRandomSampler(
         weights=sample_weights,
-        num_samples=len(train_indices),
+        num_samples=len(mapped_train_labels),
         replacement=True,
     )
 
 
 def get_dataloaders(
-    data_dir: str,
+    data_dir: str = "./data",
     batch_size: int = 64,
     use_weighted_sampler: bool = True,
     seed: int = 42,
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
-    """Downloads dataset, curates splits, and returns mapped DataLoader instances for (train, val, test)."""
-    mnist_dataset = download_mnist(data_dir)
-    shuffled_dataset, split_label_indices = curate_imbalanced_splits(mnist_dataset, seed=seed)
+    """Loads datasets and returns (train_loader, val_loader, test_loader).
 
-    train_indices = [idx for list_ in split_label_indices["train"].values() for idx in list_]
-    val_indices = [idx for list_ in split_label_indices["val"].values() for idx in list_]
-    test_indices = [idx for list_ in split_label_indices["test"].values() for idx in list_]
+    Automatically creates the curated dataset if not yet present in data_dir.
+    """
+    curated_file = Path(data_dir) / CURATED_FILENAME
+    if not curated_file.exists():
+        download_and_curate_data(data_dir=data_dir, seed=seed)
 
-    train_subset = LabelMappedDataset(Subset(shuffled_dataset, train_indices), DIGIT_TO_IDX)
-    val_subset = LabelMappedDataset(Subset(shuffled_dataset, val_indices), DIGIT_TO_IDX)
-    test_subset = LabelMappedDataset(Subset(shuffled_dataset, test_indices), DIGIT_TO_IDX)
+    data = torch.load(curated_file, map_location="cpu")
+
+    train_ds = TensorDataset(data["train_images"], data["train_labels"])
+    val_ds = TensorDataset(data["val_images"], data["val_labels"])
+    test_ds = TensorDataset(data["test_images"], data["test_labels"])
 
     if use_weighted_sampler:
-        sampler = create_weighted_sampler(shuffled_dataset, train_indices, split_label_indices)
-        train_loader = DataLoader(train_subset, batch_size=batch_size, sampler=sampler)
+        sampler = create_weighted_sampler(data["train_labels"])
+        train_loader = DataLoader(train_ds, batch_size=batch_size, sampler=sampler)
     else:
-        train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
+        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
 
-    val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False)
-    test_loader = DataLoader(test_subset, batch_size=batch_size, shuffle=False)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
+    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
 
     return train_loader, val_loader, test_loader
-
