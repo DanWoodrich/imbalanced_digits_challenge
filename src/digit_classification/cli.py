@@ -14,6 +14,7 @@ from digit_classification.data import (
     get_dataloaders,
     TARGET_DIGITS,
     IDX_TO_DIGIT,
+    CURATED_FILENAME
 )
 from digit_classification.model import DigitClassifier, preprocess_image
 from digit_classification.evaluation import evaluate_model
@@ -91,7 +92,6 @@ def train(
     lr: float = typer.Option(0.001, "--lr", help="Learning rate for Adam optimizer."),
     weighted: bool = typer.Option(True, "--weighted/--no-weighted", help="Use WeightedRandomSampler to address class imbalance."),
     plot_loss: bool = typer.Option(True, "--plot-loss/--no-plot-loss", help="Generate loss curve PNG artifact overall and per class."),
-    seed: int = typer.Option(42, "--seed", help="Random seed for data curation if not already present (default: 42)."),
 ):
     """Train the model on the curated dataset and save timestamped run artifacts."""
     if epochs > 20:
@@ -106,11 +106,19 @@ def train(
 
     typer.echo(f"Run directory created: {run_dir}")
     typer.echo(f"Loading curated data loaders from {data_dir} (weighted={weighted})...")
+
+    #don't want redownload / dealing with seed, since I don't want it to be a user parameter here. 
+    curated_file = Path(data_dir) / CURATED_FILENAME
+    if not curated_file.exists():
+        typer.echo(f"Error: No data file ({CURATED_FILENAME}) found under {data_dir}. Please provide a path to a download-data output", err=True)
+        raise typer.Exit(code=1)
+
     train_loader, val_loader, _ = get_dataloaders(
         data_dir=data_dir,
         batch_size=batch_size,
         use_weighted_sampler=weighted,
-        seed=seed,
+        #seed won't ever apply here - redownload case caught earlier. 
+        seed=-1,
     )
 
     typer.echo(f"Initializing DigitClassifier (lr={lr}, num_classes={len(TARGET_DIGITS)})...")

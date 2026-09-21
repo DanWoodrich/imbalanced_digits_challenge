@@ -8,7 +8,7 @@ A Typer application for a custom CNN implementation for handwritten digit classi
   - 3,500 images with label `8`
   - 1,200 images with label `0`
   - 300 images with label `5`
-  
+
  Project requirements dicate an 80:20 train/val : test split among this imbalanced sample. In total, we designate a 60% training (3,000 images), 20% validation (1,000 images), and 20% evaluation/test (1,000 images) split. 
 - **Model Architecture**: Custom 3-block Convolutional Neural Network built with PyTorch Lightning (`LightningModule`) with 3 output classes and per-class loss tracking.
 - **Imbalance Handling**: Inverts class frequencies using `WeightedRandomSampler` to counter minority class underperformance.
@@ -28,6 +28,7 @@ pip install -e ".[test]"
 ## CLI Usage
 
 At most minimal (using provided defaults)
+
 See CLI tooltip (ie; digit-classification download-data --help) for full options. 
 
 ### 1. Download & Curate Dataset
