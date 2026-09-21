@@ -10,6 +10,11 @@ from lightning.pytorch import LightningModule
 import matplotlib.pyplot as plt
 from digit_classification.data import DIGIT_TO_IDX, IDX_TO_DIGIT, NUM_CLASSES, TARGET_DIGITS
 
+#define certain augmentation packages
+AUGMENTATION_MODIFIER = {
+    1: ((0.2, 0.2), (0.9, 1.1)),
+    2: ((0.35, 0.35), (0.75, 1.25)),
+}
 
 def preprocess_image(image: Union[Image.Image, torch.Tensor, Path, str]) -> torch.Tensor:
     """Preprocesses an input image (PIL Image, file path, or torch.Tensor) to shape (1, 1, 28, 28).
@@ -48,6 +53,58 @@ def preprocess_image(image: Union[Image.Image, torch.Tensor, Path, str]) -> torc
     ])
     return transform(img).unsqueeze(0)
 
+class FrameShiftAugmentation(torch.nn.Module):
+    """Applies a custom frame shift augmentation implementation.
+    Accepts a mode argument that defines two different packages, of low (1) and medium (2) degree
+    """
+    def __init__(self, mode: int):
+        super().__init__()
+    
+        translate,scale = AUGMENTATION_MODIFIER[mode]
+
+        self.transform = transforms.Compose([
+            transforms.RandomAffine(
+                degrees=0,
+                translate=translate,
+                scale=scale
+            ),
+        ])
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return torch.stack([
+            self.transform(image)
+            for image in x
+        ])
+    
+#by definition, this is the 'high' augmentation, so hardcode parameters here. 
+class FrameShiftAugmentationBlur(torch.nn.Module):
+    """Applies a custom frame shift augmentation implementation, along with a blur to alleviate some of the pixelated look from the degree shift.
+    """
+    def __init__(self,
+                translate: tuple[float, float] = (0.5, 0.5),
+                degrees: float = 45,
+                scale: tuple[float, float] = (0.5, 1.5),
+                blur_kernel: tuple[int, int] = (3, 3),
+                blur_sigma: tuple[float, float] = (0.05, 0.65)):
+        super().__init__()
+
+        self.transform = transforms.Compose([
+            transforms.RandomAffine(
+                degrees=degrees,
+                translate=translate,
+                scale=scale
+            ),
+            transforms.GaussianBlur(
+                kernel_size=blur_kernel,
+                sigma=blur_sigma
+            )
+        ])
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return torch.stack([
+            self.transform(image)
+            for image in x
+        ])
 
 class DigitClassifier(LightningModule):
     """Custom Convolutional Neural Network for recognizing digits (0, 5, and 8) from MNIST.
@@ -55,12 +112,25 @@ class DigitClassifier(LightningModule):
     Tracks overall and per-class train/val loss history for diagnostic visualization.
     """
 
-    def __init__(self, learning_rate: float = 0.001, num_classes: int = NUM_CLASSES):
+    def __init__(self, learning_rate: float = 0.001, num_classes: int = NUM_CLASSES,frameshift_augmentation: int = 1):
         super().__init__()
         self.save_hyperparameters()
         self.learning_rate = learning_rate
         self.num_classes = num_classes
 
+        if frameshift_augmentation in AUGMENTATION_MODIFIER:
+            self.augmentation = FrameShiftAugmentation(
+                mode=frameshift_augmentation
+            )
+        elif frameshift_augmentation == 3:
+            self.augmentation = FrameShiftAugmentationBlur()
+        elif frameshift_augmentation == 0:
+            self.augmentation = torch.nn.Identity()
+        else:
+            raise ValueError(
+                f"Invalid frameshift_augmentation: {frameshift_augmentation}. "
+                "Expected 0, 1, 2, or 3."
+            )
         # 3 Convolutional blocks
         self.conv1 = nn.Conv2d(1, 32, kernel_size=3, padding=1)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
@@ -123,6 +193,9 @@ class DigitClassifier(LightningModule):
     def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
         """Compute training loss and accumulate batch outputs for per-class metrics."""
         x, y = batch
+
+        x = self.augmentation(x)
+
         logits = self(x)
         loss = self.loss_fn(logits, y)
         raw_losses = self.unreduced_loss_fn(logits, y)

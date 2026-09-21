@@ -5,7 +5,9 @@ from pathlib import Path
 import re
 from typing import Optional
 import typer
+from PIL import Image
 import torch
+from torchvision import transforms
 from lightning.pytorch import Trainer
 from lightning.pytorch.callbacks import ModelCheckpoint
 
@@ -45,6 +47,7 @@ def find_checkpoint(search_dir: Path, strategy: str = "latest") -> Optional[Path
                 except ValueError:
                     pass
         if scored_ckpts:
+            # Sort by lowest val_loss ascending
             scored_ckpts.sort(key=lambda item: item[0])
             return scored_ckpts[0][1]
 
@@ -91,6 +94,7 @@ def train(
     batch_size: int = typer.Option(64, "--batch-size", help="Batch size for training and validation."),
     lr: float = typer.Option(0.001, "--lr", help="Learning rate for Adam optimizer."),
     weighted: bool = typer.Option(True, "--weighted/--no-weighted", help="Use WeightedRandomSampler to address class imbalance."),
+    frameshift_aug: int = typer.Option(1, "--frame-shift", help="Frameshift augmentation level. 0 = none, 1 = low, 2 = moderate, 3 = high (with blur)."),
     plot_loss: bool = typer.Option(True, "--plot-loss/--no-plot-loss", help="Generate loss curve PNG artifact overall and per class."),
 ):
     """Train the model on the curated dataset and save timestamped run artifacts."""
@@ -123,6 +127,7 @@ def train(
 
     typer.echo(f"Initializing DigitClassifier (lr={lr}, num_classes={len(TARGET_DIGITS)})...")
     model = DigitClassifier(learning_rate=lr)
+    model = DigitClassifier(learning_rate=lr,frameshift_augmentation=frameshift_aug)
 
     checkpoint_callback = ModelCheckpoint(
         dirpath=str(ckpt_dir),
@@ -238,6 +243,12 @@ def predict(
     model = DigitClassifier.load_from_checkpoint(str(ckpt_file))
     model.eval()
 
+    raw_img = Image.open(img_file).convert("L")
+    transform = transforms.Compose([
+        transforms.Resize((28, 28)),
+        transforms.ToTensor(),
+    ])
+    tensor_img = transform(raw_img).unsqueeze(0)
     tensor_img = preprocess_image(img_file)
 
     with torch.no_grad():
