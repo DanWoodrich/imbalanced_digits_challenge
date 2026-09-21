@@ -63,6 +63,6 @@ pytest -v
 
 ## Generative AI used for this project:
 
-In general, I tried to stay light on the GenAI for the actual ML ideation and implementation. I used Google search built-in AI and free tiers of basic chatbots, in most cases asking about the most normal implementation patterns in the pytoch/lightning framework. 
+In general, I tried to stay light on the GenAI for the actual ML ideation and implementation. I used Google search built-in AI and free tiers of basic chatbots, in most cases asking about the most normal implementation patterns in the pytorch/lightning framework. 
 
 I used AI more heavily (Antigravity free tier) to develop the project skeleton, CLI and tests, and some initial back and forth around missed assumptions. This allowed me to get past the initial gruntwork and boilerplate and start digging into the tool behaviors and bugs, and start adding features.  
