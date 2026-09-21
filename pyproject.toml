@@ -1,6 +1,6 @@
 [project]
 name = "digit-classification"
-version = "0.0.1"
+version = "0.0.2"
 description = "Solution to the imbalanced digit classification problem using PyTorch Lightning."
 readme = "README.md"
 authors = [
