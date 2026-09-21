@@ -11,7 +11,7 @@ A Typer application for a custom CNN implementation for handwritten digit classi
 
  Project requirements dicate an 80:20 train/val : test split among this imbalanced sample. In total, we designate a 60% training (3,000 images), 20% validation (1,000 images), and 20% evaluation/test (1,000 images) split. 
 - **Model Architecture**: Custom 3-block Convolutional Neural Network built with PyTorch Lightning (`LightningModule`) with 3 output classes and per-class loss tracking.
-- **Imbalance Handling**: Inverts class frequencies with two primary mechanisms:
+- **Design decisions around imbalance**: Two primary mechanisms used: 
 
 1. using `WeightedRandomSampler` to counter minority class underperformance.
 2. using frame-shift augmentation (pytorch "RandomAffine" transform) to boost the variance in the underrepresented class. 
