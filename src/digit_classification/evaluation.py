@@ -45,7 +45,7 @@ def compute_metrics_and_matrix(
         class_n = int(supports[idx])
         # Per-class accuracy matching the notebook evaluation logic (class recall)
         class_acc = recalls[idx]
-        metrics_table[f"Digit {digit}"] = {
+        metrics_table[f"Digit_{digit}"] = {
             "n": class_n,
             "accuracy": class_acc,
             "precision": precisions[idx],
@@ -76,11 +76,11 @@ def format_evaluation_report(
 
     lines.append("")
     lines.append("Confusion Matrix:")
-    header = f"{'':12} {'Pred 8':>10} {'Pred 0':>10} {'Pred 5':>10}"
+    header = f"{'':12} {'Pred_8':>10} {'Pred_0':>10} {'Pred_5':>10}"
     lines.append(header)
     lines.append("-" * len(header))
 
-    ordered_labels = ["Actual 8", "Actual 0", "Actual 5"]
+    ordered_labels = ["Actual_8", "Actual_0", "Actual_5"]
     for row_name, row in zip(ordered_labels, confusion_mat):
         lines.append(f"{row_name:12} {row[0]:>10} {row[1]:>10} {row[2]:>10}")
 

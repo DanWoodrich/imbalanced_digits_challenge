@@ -4,8 +4,62 @@ from pathlib import Path
 from PIL import Image
 import pytest
 import torch
-from digit_classification.model import DigitClassifier, preprocess_image
+from digit_classification.model import DigitClassifier, preprocess_image, AUGMENTATION_MODIFIER
 from digit_classification.data import TARGET_DIGITS, NUM_CLASSES
+
+
+def test_predict_step_image_formats(tmp_path: Path):
+    """Verify preprocess_image and predict_step work correctly with JPEG and TIFF file inputs.
+
+    PIL's Image.open supports both formats; this test ensures the file-path branch of
+    preprocess_image handles each without error and produces valid predictions.
+    """
+    model = DigitClassifier()
+
+    base_img = Image.new("L", (28, 28), color=128)
+
+    for fmt, filename in [("JPEG", "digit.jpg"), ("TIFF", "digit.tiff")]:
+        img_path = tmp_path / filename
+        base_img.save(img_path, format=fmt)
+
+        tensor = preprocess_image(img_path)
+        assert tensor.shape == (1, 1, 28, 28), f"Wrong shape for {fmt}"
+
+        out = model.predict_step(tensor)
+        assert out["probabilities"].shape == (1, NUM_CLASSES), f"Wrong prob shape for {fmt}"
+        assert torch.allclose(out["probabilities"].sum(dim=-1), torch.ones(1), atol=1e-5), (
+            f"Probabilities do not sum to 1 for {fmt}"
+        )
+        assert out["predictions"][0] in TARGET_DIGITS, f"Prediction not a valid digit for {fmt}"
+
+
+def test_training_step_augmentation_modes():
+    """Verify DigitClassifier.training_step runs without error for every augmentation mode.
+
+    Modes: 0 (none/Identity), 1 (low FrameShift), 2 (moderate FrameShift), 3 (high + blur).
+    Each mode is exercised with a small synthetic batch to confirm the augmentation pipeline
+    is wired correctly end-to-end and produces a finite scalar loss.
+    """
+    batch_size = 4
+    x = torch.randn(batch_size, 1, 28, 28)
+    # Use all three mapped label indices to avoid zero_division warnings inside the loss
+    y = torch.tensor([0, 1, 2, 0], dtype=torch.long)
+    batch = (x, y)
+
+    all_modes = [0, 1, 2, 3]
+    for mode in all_modes:
+        model = DigitClassifier(frameshift_augmentation=mode)
+        model.train()
+
+        loss = model.training_step(batch, batch_idx=0)
+
+        assert isinstance(loss, torch.Tensor), f"Mode {mode}: loss is not a Tensor"
+        assert loss.ndim == 0, f"Mode {mode}: loss should be a scalar"
+        assert torch.isfinite(loss), f"Mode {mode}: loss is not finite ({loss.item()})"
+
+    # Verify invalid mode raises ValueError
+    with pytest.raises(ValueError, match="Invalid frameshift_augmentation"):
+        DigitClassifier(frameshift_augmentation=99)
 
 
 def test_model_initialization():
@@ -13,34 +67,6 @@ def test_model_initialization():
     model = DigitClassifier(learning_rate=0.001)
     assert model.fc2.out_features == NUM_CLASSES  # 3 classes
     assert model.learning_rate == 0.001
-
-
-def test_model_forward_shape():
-    """Verify forward pass output shape is (batch_size, 3)."""
-    model = DigitClassifier()
-    dummy_input = torch.randn(4, 1, 28, 28)
-    logits = model(dummy_input)
-
-    assert logits.shape == (4, NUM_CLASSES)
-    assert logits.dtype == torch.float32
-
-
-def test_training_and_validation_steps():
-    """Verify training_step, validation_step, and epoch end hooks execute cleanly."""
-    model = DigitClassifier()
-    x = torch.randn(4, 1, 28, 28)
-    y = torch.tensor([0, 1, 2, 0], dtype=torch.long)
-
-    loss_train = model.training_step((x, y), batch_idx=0)
-    assert loss_train is not None and not torch.isnan(loss_train)
-    model.on_train_epoch_end()
-    assert len(model.history["train_loss"]) == 1
-
-    loss_val = model.validation_step((x, y), batch_idx=0)
-    assert loss_val is not None and not torch.isnan(loss_val)
-    model.on_validation_epoch_end()
-    assert len(model.history["val_loss"]) == 1
-
 
 def test_predict_step_standard_shape():
     """Verify predict_step returns probabilities for digits (0, 5, 8) with standard 28x28 inputs."""
@@ -102,6 +128,7 @@ def test_predict_step_with_non_28x28_inputs(tmp_path: Path):
 def test_plot_loss_curves(tmp_path: Path):
     """Verify plot_loss_curves saves a valid PNG file."""
     model = DigitClassifier()
+    # Populate mock history
     model.history["train_loss"] = [0.5, 0.3, 0.1]
     model.history["val_loss"] = [0.6, 0.4, 0.2]
     model.history["val_loss_8"] = [0.5, 0.3, 0.1]

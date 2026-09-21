@@ -126,13 +126,12 @@ def train(
     )
 
     typer.echo(f"Initializing DigitClassifier (lr={lr}, num_classes={len(TARGET_DIGITS)})...")
-    model = DigitClassifier(learning_rate=lr)
     model = DigitClassifier(learning_rate=lr,frameshift_augmentation=frameshift_aug)
 
     checkpoint_callback = ModelCheckpoint(
         dirpath=str(ckpt_dir),
         filename="digit-classifier-{epoch:02d}-{val_loss:.4f}",
-        save_top_k=1,
+        save_top_k=epochs,
         monitor="val_loss",
         mode="min",
     )
@@ -249,7 +248,6 @@ def predict(
         transforms.ToTensor(),
     ])
     tensor_img = transform(raw_img).unsqueeze(0)
-    tensor_img = preprocess_image(img_file)
 
     with torch.no_grad():
         out = model.predict_step(tensor_img)

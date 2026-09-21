@@ -34,7 +34,7 @@ def test_train_help():
     assert "--epochs" in result.stdout
     assert "--weighted" in result.stdout
     assert "--plot-loss" in result.stdout
-    assert "--seed" in result.stdout
+    assert "--frame-shift" in result.stdout
 
 
 def test_evaluate_help():

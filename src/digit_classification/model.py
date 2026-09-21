@@ -10,7 +10,7 @@ from lightning.pytorch import LightningModule
 import matplotlib.pyplot as plt
 from digit_classification.data import DIGIT_TO_IDX, IDX_TO_DIGIT, NUM_CLASSES, TARGET_DIGITS
 
-#define certain augmentation packages
+# Augmentation parameters (translate, scale) keyed by frameshift mode (1=low, 2=moderate)
 AUGMENTATION_MODIFIER = {
     1: ((0.2, 0.2), (0.9, 1.1)),
     2: ((0.35, 0.35), (0.75, 1.25)),

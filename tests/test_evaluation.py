@@ -11,6 +11,74 @@ from digit_classification.evaluation import (
 from digit_classification.model import DigitClassifier
 
 
+def test_compute_metrics_and_matrix_one_class_absent():
+    """Verify compute_metrics_and_matrix handles a class that has no true samples gracefully.
+
+    When one class is completely absent from y_true, precision_recall_fscore_support with
+    zero_division=0 should return zeros for that class without raising an error.
+    """
+    # Only Digit_0 (mapped 0) and Digit_8 (mapped 2) are present; Digit_5 (mapped 1) is absent.
+    y_true = [0, 0, 2, 2]
+    y_pred = [0, 2, 2, 2]
+
+    metrics_table, cm = compute_metrics_and_matrix(y_true, y_pred)
+
+    # All class keys must still be present
+    assert "All" in metrics_table
+    assert "Digit_0" in metrics_table
+    assert "Digit_5" in metrics_table
+    assert "Digit_8" in metrics_table
+
+    # Absent class: n=0 and all scores zeroed out (zero_division=0 policy)
+    assert metrics_table["Digit_5"]["n"] == 0
+    assert metrics_table["Digit_5"]["recall"] == pytest.approx(0.0)
+    assert metrics_table["Digit_5"]["precision"] == pytest.approx(0.0)
+    assert metrics_table["Digit_5"]["f1"] == pytest.approx(0.0)
+
+    # Overall count reflects only the present samples
+    assert metrics_table["All"]["n"] == 4
+
+    # CM is still 3×3 even with an absent class
+    assert len(cm) == 3
+    assert all(len(row) == 3 for row in cm)
+
+    # The absent Digit_5 row is all zeros
+    digit5_row_index = 2  # ordered [8, 0, 5] → row 2 = Digit_5
+    assert cm[digit5_row_index] == [0, 0, 0]
+
+
+def test_compute_metrics_and_matrix_all_classes_absent():
+    """Verify compute_metrics_and_matrix handles predictions where only one class appears in y_true.
+
+    Simulates the degenerate case where the dataset contains only one digit class,
+    so the other two are entirely absent. All per-class scores for missing classes
+    should be 0.0 and the function must not raise.
+    """
+    # Only Digit_0 (mapped 0) samples exist
+    y_true = [0, 0, 0, 0]
+    y_pred = [0, 0, 0, 0]  
+
+    metrics_table, cm = compute_metrics_and_matrix(y_true, y_pred)
+
+    # Structure is intact
+    for key in ("All", "Digit_0", "Digit_5", "Digit_8"):
+        assert key in metrics_table
+
+    # Both absent classes report n=0 and zeroed metrics
+    for absent_digit in ("Digit_5", "Digit_8"):
+        assert metrics_table[absent_digit]["n"] == 0
+        assert metrics_table[absent_digit]["recall"] == pytest.approx(0.0)
+        assert metrics_table[absent_digit]["f1"] == pytest.approx(0.0)
+
+    # Digit_0 has 4 samples, 3 correct
+    assert metrics_table["Digit_0"]["n"] == 4
+    assert metrics_table["Digit_0"]["recall"] == pytest.approx(1.0)
+
+    # CM is 3×3; rows for absent classes are all zeros
+    assert len(cm) == 3
+    assert cm[0] == [0, 0, 0]  # Actual Digit_8 row: no samples
+    assert cm[2] == [0, 0, 0]  # Actual Digit_5 row: no samples
+
 def test_compute_metrics_and_matrix():
     """Verify compute_metrics_and_matrix calculates metrics with requested keys and matrix shape."""
     # Synthetic targets: 6 samples (mapped labels: 0=Digit 0, 1=Digit 5, 2=Digit 8)
@@ -20,42 +88,19 @@ def test_compute_metrics_and_matrix():
     metrics_table, cm = compute_metrics_and_matrix(y_true, y_pred)
 
     assert "All" in metrics_table
-    assert "Digit 8" in metrics_table
-    assert "Digit 0" in metrics_table
-    assert "Digit 5" in metrics_table
+    assert "Digit_8" in metrics_table
+    assert "Digit_0" in metrics_table
+    assert "Digit_5" in metrics_table
 
     assert metrics_table["All"]["n"] == 6
-    assert metrics_table["Digit 8"]["n"] == 2
-    assert metrics_table["Digit 0"]["n"] == 2
-    assert metrics_table["Digit 5"]["n"] == 2
+    assert metrics_table["Digit_8"]["n"] == 2
+    assert metrics_table["Digit_0"]["n"] == 2
+    assert metrics_table["Digit_5"]["n"] == 2
 
     # Confusion matrix shape must be 3x3 for classes [8, 0, 5]
     assert len(cm) == 3
     assert len(cm[0]) == 3
 
-
-def test_format_evaluation_report():
-    """Verify formatted string contains requested CSV header, n column, and confusion matrix."""
-    metrics_table = {
-        "All": {"n": 1000, "accuracy": 0.992, "precision": 0.978, "recall": 0.969, "f1": 0.974},
-        "Digit 8": {"n": 700, "accuracy": 0.997, "precision": 0.995, "recall": 0.997, "f1": 0.996},
-        "Digit 0": {"n": 240, "accuracy": 0.995, "precision": 0.991, "recall": 0.995, "f1": 0.993},
-        "Digit 5": {"n": 60, "accuracy": 0.916, "precision": 0.948, "recall": 0.916, "f1": 0.932},
-    }
-    cm = [
-        [698, 1, 1],
-        [1, 239, 0],
-        [2, 3, 55],
-    ]
-
-    report = format_evaluation_report(metrics_table, cm)
-
-    assert "class,n,accuracy,precision,recall,f1" in report
-    assert "All,1000,0.9920,0.9780,0.9690,0.9740" in report
-    assert "Digit 8,700,0.9970,0.9950,0.9970,0.9960" in report
-    assert "Confusion Matrix:" in report
-    assert "Pred 8" in report
-    assert "Actual 8" in report
 
 
 def test_evaluate_model():

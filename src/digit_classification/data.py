@@ -34,6 +34,7 @@ def curate_imbalanced_splits(
     """
     assert train_count + val_count + test_count == TOTAL_SAMPLES
 
+    # Generator 1: used exclusively to produce a reproducible shuffled ordering of MNIST
     generator = torch.Generator().manual_seed(seed)
     shuffled_indices = torch.randperm(len(mnist_dataset), generator=generator).tolist()
 
@@ -50,6 +51,7 @@ def curate_imbalanced_splits(
         "test": {8: [], 0: [], 5: []},
     }
 
+    # Generator 2: used exclusively for random split assignment (separate from shuffling above)
     rng = torch.Generator().manual_seed(seed)
 
     for idx, (_, label) in enumerate(shuffled_samples):
