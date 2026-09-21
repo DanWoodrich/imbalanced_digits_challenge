@@ -14,7 +14,7 @@ dependencies = [
     "typer>=0.15.0",
     "scikit-learn>=1.3.0",
     "pillow>=10.0.0",
-    "matplotlib>=3.7.0",
+    "matplotlib>=3.7.0", #not a stellar dep but too useful for walkthrough purposes to leave out
 ]
 
 [project.optional-dependencies]

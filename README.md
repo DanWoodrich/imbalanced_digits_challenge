@@ -1,6 +1,6 @@
 # Digit Classification
 
-A Typer application for a custom CNN implementation for handwritten digit classification from an imbalanced subset of the MNIST dataset. 
+A Typer application for a custom CNN implementation of handwritten digit classification on an imbalanced dataset. 
 
 ## Overview
 
