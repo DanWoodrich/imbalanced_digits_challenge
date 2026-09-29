@@ -42,34 +42,58 @@ def curate_imbalanced_splits(
         mnist_dataset[i] for i in shuffled_indices
     ]
 
-    label_quota = TARGET_QUOTAS.copy()
-    split_quota = {"train": train_count, "val": val_count, "test": test_count}
+    #fix class assignment bug by undersampling mnist so that the rate of encounter allows for random
+    #draws and correct label ratios in splits
 
+    label_quota = TARGET_QUOTAS.copy()
+
+    curated_samples: List[Tuple[torch.Tensor, int]] = []
+
+    for sample in shuffled_samples:
+        _, label = sample
+
+        if label in label_quota:
+            curated_samples.append(sample)
+            label_quota[label] -= 1
+
+            if label_quota[label] == 0:
+                del label_quota[label]
+
+                if not label_quota:
+                    break
+
+    shuffled_samples = curated_samples
+    #Generator 2: randomize again to make the chance of encounter proportional to avoid early exhaustion below
+    generator2 = torch.Generator().manual_seed(seed)
+    shuffled_indices2 = torch.randperm(len(shuffled_samples), generator=generator2).tolist()
+    shuffled_samples = [shuffled_samples[i] for i in shuffled_indices2]
+
+    # Generator 3: used exclusively for random split assignment (separate from shuffling above)
+    rng = torch.Generator().manual_seed(seed)
+
+    split_quota = {"train": train_count, "val": val_count, "test": test_count}
     split_label_indices: Dict[str, Dict[int, List[int]]] = {
         "train": {8: [], 0: [], 5: []},
         "val": {8: [], 0: [], 5: []},
         "test": {8: [], 0: [], 5: []},
     }
 
-    # Generator 2: used exclusively for random split assignment (separate from shuffling above)
-    rng = torch.Generator().manual_seed(seed)
-
+    #fix bug where split assignments gave too many smaller class counts to smaller splits
     for idx, (_, label) in enumerate(shuffled_samples):
-        if label in label_quota:
-            active_splits = list(split_quota.keys())
-            rand_idx = int(torch.randint(high=len(active_splits), size=(1,), generator=rng).item())
-            chosen_split = active_splits[rand_idx]
+        active_splits = list(split_quota.keys())
+        rand_idx = int(torch.randint(high=len(active_splits), size=(1,), generator=rng).item())
+        chosen_split = active_splits[rand_idx]
 
-            split_label_indices[chosen_split][label].append(idx)
-            label_quota[label] -= 1
-            split_quota[chosen_split] -= 1
+        split_label_indices[chosen_split][label].append(idx)
+        split_quota[chosen_split] -= 1
 
-            if split_quota[chosen_split] == 0:
-                del split_quota[chosen_split]
-            if label_quota[label] == 0:
-                del label_quota[label]
-                if not label_quota:
-                    break
+        if split_quota[chosen_split] == 0:
+            del split_quota[chosen_split]
+
+
+    print([("test",x,len(split_label_indices["test"][x])) for x in split_label_indices["test"]])
+    print([("train",x,len(split_label_indices["train"][x])) for x in split_label_indices["train"]])
+    print([("val",x,len(split_label_indices["val"][x])) for x in split_label_indices["val"]])
 
     return shuffled_samples, split_label_indices
 
